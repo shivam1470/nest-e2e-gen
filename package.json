@@ -1,6 +1,6 @@
 {
   "name": "nest-e2e-gen",
-  "version": "0.3.7",
+  "version": "0.3.8",
   "description": "A tool to generate E2E test payloads from NestJS DTOs and Swagger decorators.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

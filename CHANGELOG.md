@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.8] - 2025-09-19
+### Fixed
+- Release script: robust CHANGELOG section extraction (previous awk pattern caused syntax error when building release notes).
+
+### Changed
+- Documentation: Clarify optimization via single cached ts-morph Project instance to reduce repeated parsing overhead during generation.
+
+### Notes
+- Patch release to enable successful npm publish after 0.3.7 version duplication error.
+
 ## [0.3.7] - 2025-09-19
 ### Removed
 - Final removal of lingering `src/dto-generator` legacy folder accidentally still present after 0.3.6 cleanup.
