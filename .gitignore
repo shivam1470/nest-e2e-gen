@@ -1,0 +1,45 @@
+# Node / TypeScript
+node_modules/
+dist/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+
+# Coverage / Reports
+coverage/
+*.lcov
+
+# Temporary
+.tmp/
+.temp/
+.swp
+
+# Generated test artifacts
+/test/generated-payloads/
+/test/generated-apis/
+/test/features/
+/test/steps/
+/test/utility/
+
+# Package tarballs
+*.tgz
+
+# Env
+.env
+.env.*
+
+# Lock backup
+package-lock.json
+
+# Misc
+*.log
