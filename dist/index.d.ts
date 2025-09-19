@@ -1,0 +1,14 @@
+export * from './generators/dto-gen';
+export * from './generators/json-index-gen';
+export * from './generators/api-gen';
+export * from './generators/test-gen';
+export * from './generators/clean-gen';
+export * from './orchestrator';
+import * as DtoGeneratorNS from './generators/dto-gen';
+import * as JsonToTsGeneratorNS from './generators/json-index-gen';
+import * as ControllerParserNS from './generators/api-gen';
+import * as FeatureGeneratorNS from './generators/test-gen';
+export declare const DtoGenerator: typeof DtoGeneratorNS;
+export declare const JsonToTsGenerator: typeof JsonToTsGeneratorNS;
+export declare const ControllerParser: typeof ControllerParserNS;
+export declare const FeatureGenerator: typeof FeatureGeneratorNS;
