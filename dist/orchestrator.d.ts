@@ -10,5 +10,7 @@ export interface AllGenCfg {
     overwrite?: boolean;
     dryRun?: boolean;
     logLevel?: 'silent' | 'info' | 'debug';
+    enableMock?: boolean;
+    forceMockUpgrade?: boolean;
 }
 export declare function generateAll(cfg?: AllGenCfg): Promise<void>;

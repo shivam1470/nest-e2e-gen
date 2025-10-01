@@ -1,8 +1,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-export interface TestGenCfg { projectRoot?: string; apiSpecDir?: string; baseTestDir?: string; overwrite?: boolean; dryRun?: boolean; logLevel?: 'silent'|'info'|'debug'; filter?: string; }
-interface InternalCfg extends Required<Omit<TestGenCfg,'filter'>> { filter: string; }
+export interface TestGenCfg { projectRoot?: string; apiSpecDir?: string; baseTestDir?: string; overwrite?: boolean; dryRun?: boolean; logLevel?: 'silent'|'info'|'debug'; filter?: string; enableMock?: boolean; forceMockUpgrade?: boolean; }
+interface InternalCfg extends Required<Omit<TestGenCfg,'filter'>> { filter: string; enableMock: boolean; forceMockUpgrade: boolean; }
 
 function log(level:'info'|'debug', cfg:InternalCfg, ...args:any[]){ if(cfg.logLevel==='silent') return; if(cfg.logLevel==='info'&&level==='debug') return; console.log('[test-gen]', ...args); }
 const toKebabCase=(s:string)=> s.replace(/([a-z])([A-Z])/g,'$1-$2').toLowerCase();
@@ -12,12 +12,20 @@ interface ApiEndpointEntry { endpoint:string; method:string; path:string; payloa
 interface ApiModuleSpec { [endpoint: string]: ApiEndpointEntry; }
 interface ApiSpecRoot { [module: string]: ApiModuleSpec; }
 
-function buildFeature(module:string, endpointKey:string, ep:ApiEndpointEntry){
+function buildFeature(module:string, endpointKey:string, ep:ApiEndpointEntry, fileBase?:string){
+  // fileBase pattern method-entity-action-{positive|negative}
+  const isPositive = fileBase?.endsWith('-positive');
   let expected = ep.method==='POST'?201:200;
   if(module==='auth' && endpointKey==='login') expected = 200;
-  return `Feature: ${module} - ${endpointKey}\n\n  Scenario: Successful ${ep.method} ${ep.path}\n    Given a valid payload for ${endpointKey}\n    When the client sends a ${ep.method} request to "${ep.path}"\n    Then the response status should be ${expected}\n    And the response should contain expected data\n`;
+  const titleAction = toKebabCase(endpointKey).replace(/-/g,' ');
+  if(isPositive){
+    return `Feature: ${ep.method} ${module} ${titleAction} positive\n\n  Scenario: Successful ${ep.method} ${ep.path}\n    Given a valid payload for ${endpointKey}\n    When the client sends a ${ep.method} request to "${ep.path}"\n    Then the response status should be ${expected}\n    And the response should contain expected data\n`;
+  }
+  return `Feature: ${ep.method} ${module} ${titleAction} negative\n\n  Scenario: Validation failure ${ep.method} ${ep.path}\n    Given an invalid payload for ${endpointKey}\n    When the client sends a ${ep.method} request to "${ep.path}"\n    Then the response status should be 400\n    And the response should contain an error message\n`;
 }
-function buildStep(module:string, endpointKey:string, ep:ApiEndpointEntry, moduleEndpoints:ApiModuleSpec){
+function buildStep(module:string, endpointKey:string, ep:ApiEndpointEntry, moduleEndpoints:ApiModuleSpec, fileBase?:string){
+  const isPositive = fileBase?.endsWith('-positive');
+  const isValidationNeg = !isPositive; // only two states now
   // Always import requestHelper directly
   // Detect all path params for multi-seeding
   const paramTokens = Array.from(new Set((ep.path.match(/:(\w+)/g) || []).map(p=>p.slice(1))));
@@ -47,7 +55,9 @@ function buildStep(module:string, endpointKey:string, ep:ApiEndpointEntry, modul
   const baseImports = Array.from(importSet).join('\n')+'\n';
   const shouldSkipInit = module==='auth' && endpointKey==='register';
   const beforeAllBlock = shouldSkipInit ? '' : `beforeAll(async () => { if(requestHelper.init) { await requestHelper.init(); } });\n`;
-  const featureLoad = `const feature = loadFeature(__dirname + '/../../features/${module}/${toKebabCase(endpointKey)}.feature');`;
+  // Load the feature file using the same naming convention used during generation (method-module-action-outcome)
+  const featureRef = fileBase ? fileBase : toKebabCase(endpointKey);
+  const featureLoad = `const feature = loadFeature(__dirname + '/../../features/${module}/`+featureRef+`.feature');`;
   // Auto-register for auth/login scenario using its payload user (so login passes without manual pre-seed)
   let preLoginRegister = '';
   if(module==='auth' && endpointKey==='login'){
@@ -119,16 +129,41 @@ function buildStep(module:string, endpointKey:string, ep:ApiEndpointEntry, modul
     payloadLine = (payloadLine? payloadLine+'\n' : '') + pre;
   }
   let expected = (module==='auth' && endpointKey==='login') ? 200 : (ep.method==='POST'?201:200);
-  const bodyGiven = (preLoginRegister + extraSetup + autoSeedBlock + multiSeedBlock + payloadLine).trimEnd();
+  if(isValidationNeg){
+    expected = 400;
+  }
+  let invalidMutation='';
+  if(isValidationNeg){
+    // Remove first property from payload to trigger validation failure
+    invalidMutation = `      // Invalidate payload by removing a required field\n      if(payload && typeof payload === 'object'){\n        const keys = Object.keys(payload);\n        if(keys.length){ delete payload[keys[0]]; }\n      }`;
+  }
+  // Auto mock registration for mock mode (only if requestHelper.registerMock exists at runtime)
+  let mockRegistration = '';
+  if(ep.method==='POST' || ep.method==='PUT' || ep.method==='DELETE' || ep.method==='GET'){
+    const method = ep.method;
+    if(isPositive){
+      if(module==='auth' && endpointKey==='login'){
+        mockRegistration = `      if((requestHelper as any).registerMock){ (requestHelper as any).registerMock('${method}', '${ep.path}', (body:any)=>({ status: 200, body: { access_token: 'mock-token', user: { id:1, email: body?.email } } })); }`;
+      } else {
+        mockRegistration = `      if((requestHelper as any).registerMock){ (requestHelper as any).registerMock('${method}', '${ep.path}', (body:any)=>({ status: ${expected}, body: { id: 1, ...body, mocked: true } })); }`;
+      }
+    } else if(isValidationNeg) {
+      // Validation negative (400)
+      if(method==='POST' || method==='PUT'){
+        mockRegistration = `      if((requestHelper as any).registerMock){ (requestHelper as any).registerMock('${method}', '${ep.path}', (_body:any)=>({ status: 400, body: { error: 'Invalid payload (auto-mock)' } })); }`;
+      }
+    }
+  }
+  const bodyGiven = (mockRegistration + "\n" + preLoginRegister + extraSetup + autoSeedBlock + multiSeedBlock + payloadLine + (invalidMutation?"\n"+invalidMutation:'')).trimEnd();
   let stepTemplate = `${baseImports}
 ${beforeAllBlock}
 ${featureLoad}
 
 defineFeature(feature, (test) => {
-  test('Successful ${ep.method} ${ep.path}', ({ given, when, then, and }) => {
+  test('${isPositive?`Successful`:`Validation failure`} ${ep.method} ${ep.path}', ({ given, when, then, and }) => {
     let response;
     let payload;
-${extraVarDecl}    given('a valid payload for ${endpointKey}', async () => {
+${extraVarDecl}    given('${isPositive?`a valid`:`an invalid`} payload for ${endpointKey}', async () => {
 ${bodyGiven ? bodyGiven+'\n' : ''}    });
 
     when(\`the client sends a ${ep.method} request to \"${ep.path}\"\`, async () => {
@@ -136,7 +171,7 @@ ${bodyGiven ? bodyGiven+'\n' : ''}    });
 ${pathAdjust}      // Generic fallback: replace any remaining :param with incremental integers
       {
         let autoCounter = 1;
-        const residualParams = finalPath.match(/:(\w+)/g) || [];
+  const residualParams = finalPath.match(/:(\w+)/g) || [];
         residualParams.forEach(pTok => {
           const val = autoCounter++;
           finalPath = finalPath.replace(pTok, String(val));
@@ -149,9 +184,12 @@ ${pathAdjust}      // Generic fallback: replace any remaining :param with increm
       expect(response.status).toBe(${expected});
     });
 
-    and('the response should contain expected data', () => {
+    ${isPositive?`and('the response should contain expected data', () => {
       expect(response.body).toBeDefined();
-    });
+    });`:`and('the response should contain an error message', () => {
+      expect(response.body).toBeDefined();
+      expect(JSON.stringify(response.body).toLowerCase()).toMatch(/error|invalid|fail/);
+    });`}
   });
 });
 `;
@@ -177,7 +215,9 @@ export async function generateTestScaffolding(userCfg: TestGenCfg = {}) {
     overwrite: userCfg.overwrite ?? false,
     dryRun: userCfg.dryRun ?? false,
     logLevel: userCfg.logLevel || 'info',
-    filter: userCfg.filter || ''
+    filter: userCfg.filter || '',
+    enableMock: userCfg.enableMock ?? false,
+    forceMockUpgrade: userCfg.forceMockUpgrade ?? false
   };
   const apiSpecDir = path.resolve(cfg.projectRoot, cfg.apiSpecDir);
   if(!fs.existsSync(apiSpecDir)) throw new Error(`apiSpec directory not found: ${apiSpecDir}`);
@@ -281,13 +321,42 @@ export async function generateTestScaffolding(userCfg: TestGenCfg = {}) {
   });
 
   // Auto-create utility helpers if they don't exist to support generated step definitions
-  const utilFiles: Array<{name:string; content:string}> = [
+  const utilFiles: Array<{name:string; content:string; force?: boolean}> = [
     { name: 'type.ts', content: `export interface TApiEndpoint { endpoint: string; method: string; path: string; payload?: () => any; extra?: Array<{ insertAfter: string; valueKey: string; payload?: () => any }>; }\nexport interface TApiModule { [endpoint: string]: TApiEndpoint; }\n` },
     { name: 'test-app.ts', content: `import { INestApplication } from '@nestjs/common';\nimport { Test, TestingModule } from '@nestjs/testing';\nimport { AppModule } from '../../src/app.module';\n\nlet app: INestApplication | undefined;\nexport async function getTestApp(): Promise<INestApplication>{\n  if(app) return app;\n  const moduleFixture: TestingModule = await Test.createTestingModule({ imports: [AppModule] }).compile();\n  app = moduleFixture.createNestApplication();\n  await app.init();\n  return app;\n}\nexport async function closeTestApp(){ if(app){ await app.close(); app = undefined; } }\n` },
-  { name: 'request-helper.ts', content: `import supertest from 'supertest';\nimport { INestApplication } from '@nestjs/common';\nimport { getTestApp, closeTestApp } from './test-app';\n\nlet app: INestApplication | undefined;\nlet token: string | null = null;\nlet initPromise: Promise<void> | null = null;\n\nasync function ensureApp(){ if(!app){ app = await getTestApp(); } return app; }\nexport function getAuthToken(){ return token; }\n\nasync function init(){\n  if(token) return;\n  if(initPromise) return initPromise;\n  initPromise = (async () => {\n    await ensureApp();\n    const creds = { email: 'admin@example.com', password: 'Test@1234', role: 'admin', name: 'Admin User' };\n    await supertest(app!.getHttpServer()).post('/auth/register').send(creds).catch(()=>undefined);\n    const loginRes = await supertest(app!.getHttpServer()).post('/auth/login').send({ email: creds.email, password: creds.password });\n    if(loginRes.status === 200 || loginRes.status === 201){\n      token = loginRes.body?.access_token || loginRes.body?.token || null;\n    }\n  })();\n  await initPromise;\n}\nasync function close(){ await closeTestApp(); app = undefined; token = null; initPromise = null; }\nfunction authHeaders(){ return token ? { Authorization: \`Bearer \${token}\` } : {}; }\nexport const requestHelper: any = {\n  init,\n  close,\n  getAuthToken,\n  get: async (p:string)=> { await init(); return supertest((await ensureApp()).getHttpServer()).get(p).set(authHeaders()); },\n  post: async (p:string,b:any)=> { await init(); return supertest((await ensureApp()).getHttpServer()).post(p).set(authHeaders()).send(b); },\n  put: async (p:string,b:any)=> { await init(); return supertest((await ensureApp()).getHttpServer()).put(p).set(authHeaders()).send(b); },\n  delete: async (p:string)=> { await init(); return supertest((await ensureApp()).getHttpServer()).delete(p).set(authHeaders()); },\n};\n` },
+  { name: 'request-helper.ts', content: (()=>{ if(!cfg.enableMock) { return `import supertest from 'supertest';\nimport { INestApplication } from '@nestjs/common';\nimport { getTestApp, closeTestApp } from './test-app';\n\nlet app: INestApplication | undefined;\nlet token: string | null = null;\nlet initPromise: Promise<void> | null = null;\n\nasync function ensureApp(){ if(!app){ app = await getTestApp(); } return app; }\nexport function getAuthToken(){ return token; }\n\nasync function init(){\n  if(token) return;\n  if(initPromise) return initPromise;\n  initPromise = (async () => {\n    await ensureApp();\n    const creds = { email: 'admin@example.com', password: 'Test@1234', role: 'admin', name: 'Admin User' };\n    await supertest(app!.getHttpServer()).post('/auth/register').send(creds).catch(()=>undefined);\n    const loginRes = await supertest(app!.getHttpServer()).post('/auth/login').send({ email: creds.email, password: creds.password });\n    if(loginRes.status === 200 || loginRes.status === 201){\n      token = loginRes.body?.access_token || loginRes.body?.token || null;\n    }\n  })();\n  await initPromise;\n}\nasync function close(){ await closeTestApp(); app = undefined; token = null; initPromise = null; }\nfunction authHeaders(){ return token ? { Authorization: \`Bearer \${token}\` } : {}; }\nexport const requestHelper: any = {\n  init,\n  close,\n  getAuthToken,\n  get: async (p:string)=> { await init(); return supertest((await ensureApp()).getHttpServer()).get(p).set(authHeaders()); },\n  post: async (p:string,b:any)=> { await init(); return supertest((await ensureApp()).getHttpServer()).post(p).set(authHeaders()).send(b); },\n  put: async (p:string,b:any)=> { await init(); return supertest((await ensureApp()).getHttpServer()).put(p).set(authHeaders()).send(b); },\n  delete: async (p:string)=> { await init(); return supertest((await ensureApp()).getHttpServer()).delete(p).set(authHeaders()); },\n};\n`; }
+    // Mock-enabled variant
+    return `import supertest from 'supertest';\nimport { INestApplication } from '@nestjs/common';\nimport { getTestApp, closeTestApp } from './test-app';\n\n// When E2E_USE_MOCK=1 tests will not spin up a real Nest app; instead endpoints are faked.\nconst USE_MOCK = process.env.E2E_USE_MOCK === '1' || process.env.E2E_USE_MOCK === 'true';\n\nlet app: INestApplication | undefined;\nlet token: string | null = null;\nlet initPromise: Promise<void> | null = null;\n\nasync function ensureApp(){ if(USE_MOCK) return undefined as any; if(!app){ app = await getTestApp(); } return app; }\nexport function getAuthToken(){ return token; }\n\n// Simple in-memory mock store (keyed by method+path)\ninterface MockKey { method: string; path: string; }\nconst store: Record<string, any[]> = {};\nfunction key(m:string,p:string){ return m+' '+p; }\nexport function registerMock(m:string,p:string,handler:(body:any)=>{status:number;body:any}){ const k=key(m,p); (store[k]||(store[k]=[])).push(handler); }\n\nasync function init(){\n  if(token) return;\n  if(initPromise) return initPromise;\n  initPromise = (async () => {\n    if(!USE_MOCK){\n      await ensureApp();\n      const creds = { email: 'admin@example.com', password: 'Test@1234', role: 'admin', name: 'Admin User' };\n      await supertest(app!.getHttpServer()).post('/auth/register').send(creds).catch(()=>undefined);\n      const loginRes = await supertest(app!.getHttpServer()).post('/auth/login').send({ email: creds.email, password: creds.password });\n      if(loginRes.status === 200 || loginRes.status === 201){\n        token = loginRes.body?.access_token || loginRes.body?.token || null;\n      }\n    }\n  })();\n  await initPromise;\n}\nasync function close(){ if(!USE_MOCK){ await closeTestApp(); } app = undefined; token = null; initPromise = null; }\nfunction authHeaders(){ return token ? { Authorization: \`Bearer \${token}\` } : {}; }\n\nasync function realReq(method:string,path:string,body?:any){\n  const srv = (await ensureApp()).getHttpServer();\n  const st = supertest(srv);\n  switch(method){\n    case 'GET': return st.get(path).set(authHeaders());\n    case 'POST': return st.post(path).set(authHeaders()).send(body);\n    case 'PUT': return st.put(path).set(authHeaders()).send(body);\n    case 'DELETE': return st.delete(path).set(authHeaders());\n  }\n  throw new Error('Unsupported method '+method);\n}\nasync function mockReq(method:string,path:string,body?:any){\n  // Try exact match first\n  let handlers = store[key(method,path)];\n  // Pattern fallback for colon params\n  if(!handlers){\n    const prefix = method + ' ';\n    for(const [fullKey, arr] of Object.entries(store)){\n      if(!fullKey.startsWith(prefix)) continue;\n      const templatePath = fullKey.slice(prefix.length);\n      if(templatePath === path){ handlers = arr; break; }\n      if(/:[^/]+/.test(templatePath)){\n        const regex = new RegExp('^' + templatePath.replace(/:[^/]+/g,'[^/]+') + '$');\n        if(regex.test(path)){\n          handlers = arr; // don't break to allow later overrides\n        }\n      }\n    }\n  }\n  const h = handlers ? handlers[handlers.length-1] : null;\n  if(!h){ return { status: 200, body: { mocked: true, method, path, body } }; }\n  try { const res = h(body); return { status: res.status, body: res.body }; } catch(e:any){ return { status: 500, body: { error: e.message } }; }\n}\nexport const requestHelper: any = {\n  init,\n  close,\n  getAuthToken,\n  registerMock,\n  get: async (p:string)=> { await init(); return USE_MOCK? mockReq('GET', p): realReq('GET', p); },\n  post: async (p:string,b:any)=> { await init(); return USE_MOCK? mockReq('POST', p, b): realReq('POST', p, b); },\n  put: async (p:string,b:any)=> { await init(); return USE_MOCK? mockReq('PUT', p, b): realReq('PUT', p, b); },\n  delete: async (p:string)=> { await init(); return USE_MOCK? mockReq('DELETE', p): realReq('DELETE', p); },\n};\n`; })() },
     { name: 'request-dispatcher.ts', content: `import { requestHelper } from './request-helper';\nexport async function sendRequest(method: string, path: string, body?: any){\n  switch(method){\n    case 'GET': return requestHelper.get(path);\n    case 'POST': return requestHelper.post(path, body);\n    case 'PUT': return requestHelper.put(path, body);\n    case 'DELETE': return requestHelper.delete(path);\n    default: throw new Error('Unsupported method '+method);\n  }\n}\n` }
   ];
-  utilFiles.forEach(f=>{ const dest = path.join(utilityBase, f.name); if(!fs.existsSync(dest) || cfg.overwrite){ fs.writeFileSync(dest, f.content, 'utf-8'); log('info', cfg, `${fs.existsSync(dest)?'Utility overwritten':'Utility created'}: ${dest}`); } });
+  utilFiles.forEach(f=>{
+    const dest = path.join(utilityBase, f.name);
+    if(f.name === 'request-helper.ts'){
+      if(fs.existsSync(dest) && !cfg.overwrite){
+        // Detect if existing file lacks mock markers but enableMock requested
+        if(cfg.enableMock){
+          const existing = fs.readFileSync(dest,'utf-8');
+            const hasMockMarker = /E2E_USE_MOCK/.test(existing) || /registerMock/.test(existing);
+            if(!hasMockMarker){
+              if(cfg.forceMockUpgrade){
+                fs.writeFileSync(dest, f.content, 'utf-8');
+                log('info', cfg, `Force mock upgrade applied: ${dest}`);
+              } else {
+                log('info', cfg, `Mock support requested but existing request-helper has no mock markers. Use --overwrite or --force-mock-upgrade to regenerate.`);
+              }
+              return; // skip normal write path
+            }
+        }
+      }
+    }
+    if(!fs.existsSync(dest) || cfg.overwrite || (f.name==='request-helper.ts' && cfg.forceMockUpgrade)){
+      if(cfg.dryRun) log('info', cfg, `(dry-run) Would write ${dest}`);
+      else {
+        fs.writeFileSync(dest, f.content, 'utf-8');
+        log('info', cfg, `${fs.existsSync(dest)?'Utility overwritten':'Utility created'}: ${dest}`);
+      }
+    }
+  });
   const filterSet = new Set(cfg.filter.split(',').map(s=>s.trim()).filter(Boolean));
   Object.entries(apiSpec).forEach(([module,endpoints])=>{
     log('debug', cfg, 'Processing module for tests:', module, 'endpoints:', Object.keys(endpoints));
@@ -296,17 +365,43 @@ export async function generateTestScaffolding(userCfg: TestGenCfg = {}) {
     const stepsModuleDir = path.join(stepsBase,module);
     ensureDir(featureModuleDir); ensureDir(stepsModuleDir);
     Object.entries(endpoints).forEach(([endpointKey, ep])=>{
-      const featureFile = path.join(featureModuleDir, `${toKebabCase(endpointKey)}.feature`);
-      const stepFile = path.join(stepsModuleDir, `${toKebabCase(endpointKey)}.e2e-spec.ts`);
-      const featureContent = buildFeature(module, endpointKey, ep);
-  const stepContent = buildStep(module, endpointKey, ep, endpoints as ApiModuleSpec);
-      const existsFeature = fs.existsSync(featureFile); const existsStep = fs.existsSync(stepFile);
-      if(!cfg.overwrite && existsFeature && existsStep){
-        log('debug', cfg, `Skip (both exist): ${featureFile}`);
-        return;
+      const methodLower = ep.method.toLowerCase();
+      const actionKebab = toKebabCase(endpointKey);
+      const base = `${methodLower}-${module}-${actionKebab}`;
+      // Positive
+      const featureFilePos = path.join(featureModuleDir, `${base}-positive.feature`);
+      const stepFilePos = path.join(stepsModuleDir, `${base}-positive.e2e-spec.ts`);
+      const featureContentPos = buildFeature(module, endpointKey, ep, `${base}-positive`);
+      const stepContentPos = buildStep(module, endpointKey, ep, endpoints as ApiModuleSpec, `${base}-positive`);
+      const existsFeaturePos = fs.existsSync(featureFilePos); const existsStepPos = fs.existsSync(stepFilePos);
+      if(!cfg.overwrite && existsFeaturePos && existsStepPos){
+        log('debug', cfg, `Skip positive (exists): ${featureFilePos}`);
+      } else if(cfg.dryRun){
+        log('info', cfg, `(dry-run) Would write: ${featureFilePos}`);
+        log('info', cfg, `(dry-run) Would write: ${stepFilePos}`);
+      } else {
+        fs.writeFileSync(featureFilePos, featureContentPos,'utf-8');
+        fs.writeFileSync(stepFilePos, stepContentPos,'utf-8');
+        log('info', cfg, `Wrote: ${featureFilePos}`);
       }
-      if(cfg.dryRun){ log('info', cfg, `(dry-run) Would write: ${featureFile}`); log('info', cfg, `(dry-run) Would write: ${stepFile}`); }
-      else { fs.writeFileSync(featureFile, featureContent,'utf-8'); fs.writeFileSync(stepFile, stepContent,'utf-8'); log('info', cfg, `Wrote: ${featureFile}`); }
+      // Validation negative for POST & PUT (payload capable)
+      if(ep.method==='POST' || ep.method==='PUT'){
+        const featureFileNeg = path.join(featureModuleDir, `${base}-negative.feature`);
+        const stepFileNeg = path.join(stepsModuleDir, `${base}-negative.e2e-spec.ts`);
+        const featureContentNeg = buildFeature(module, endpointKey, ep, `${base}-negative`);
+        const stepContentNeg = buildStep(module, endpointKey, ep, endpoints as ApiModuleSpec, `${base}-negative`);
+        const existsFeatureNeg = fs.existsSync(featureFileNeg); const existsStepNeg = fs.existsSync(stepFileNeg);
+        if(!cfg.overwrite && existsFeatureNeg && existsStepNeg){
+          log('debug', cfg, `Skip negative (exists): ${featureFileNeg}`);
+        } else if(cfg.dryRun){
+          log('info', cfg, `(dry-run) Would write: ${featureFileNeg}`);
+          log('info', cfg, `(dry-run) Would write: ${stepFileNeg}`);
+        } else {
+          fs.writeFileSync(featureFileNeg, featureContentNeg,'utf-8');
+          fs.writeFileSync(stepFileNeg, stepContentNeg,'utf-8');
+          log('info', cfg, `Wrote: ${featureFileNeg}`);
+        }
+      }
     });
   });
   log('info', cfg, 'Test scaffolding generation complete.');

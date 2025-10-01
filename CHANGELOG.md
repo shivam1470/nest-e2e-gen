@@ -2,6 +2,33 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.0] - 2025-10-01
+### Added
+- Mock mode scaffolding: `--mock` flag generates a mock-aware `request-helper.ts` with runtime toggle via `E2E_USE_MOCK`.
+- Force upgrade flag: `--force-mock-upgrade` rewrites existing helper even without `--overwrite`.
+- Runtime mock registration API: `requestHelper.registerMock(method, path, handler)` for synthetic responses.
+
+### Changed
+- Test generator: detection & warning when `--mock` requested but legacy helper lacks mock markers.
+- Mock fallback: synthetic POST responses now return 201 + synthetic id/uuid; other methods return 200.
+
+### Fixed
+- Prevent silent no-op when enabling mock mode on previously generated suites by surfacing an explicit upgrade message.
+
+### Notes
+- Behavior is backwards compatible; consumers not passing `--mock` see no changes.
+- Mock mode bypasses Nest bootstrap for faster iteration (no DB required) but skips guards/pipes.
+
+## [0.4.1] - 2025-10-01
+### Added
+- Pattern-aware mock path resolution: dynamic route templates (e.g. `/users/:id`) now match concrete paths during mock-mode execution.
+
+### Fixed
+- PUT validation negative tests returning 200 in mock mode due to exact path mismatch now correctly return 400.
+
+### Notes
+- No breaking changes; existing mock registrations continue to work. The resolver now falls back to a regex-style match if no exact key is found.
+
 ## [0.3.8] - 2025-09-19
 ### Fixed
 - Release script: robust CHANGELOG section extraction (previous awk pattern caused syntax error when building release notes).

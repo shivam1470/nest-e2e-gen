@@ -13,7 +13,17 @@ async function generateAll(cfg = {}) {
     await (0, dto_gen_1.generateDtoPayloads)(cfg);
     await (0, json_index_gen_1.generateJsonIndex)(cfg);
     await (0, api_gen_1.generateApis)(cfg);
-    await (0, test_gen_1.generateTestScaffolding)(cfg);
+    await (0, test_gen_1.generateTestScaffolding)({
+        projectRoot: cfg.projectRoot,
+        apiSpecDir: cfg.outApis,
+        baseTestDir: 'test',
+        overwrite: cfg.overwrite,
+        dryRun: cfg.dryRun,
+        logLevel: cfg.logLevel,
+        filter: cfg.filter,
+        enableMock: cfg.enableMock,
+        forceMockUpgrade: cfg.forceMockUpgrade
+    });
     const ms = Date.now() - start;
     if (cfg.logLevel !== 'silent')
         console.log(`[all] Completed in ${ms}ms`);

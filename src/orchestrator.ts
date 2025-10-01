@@ -16,6 +16,8 @@ export interface AllGenCfg {
   overwrite?: boolean;
   dryRun?: boolean;
   logLevel?: 'silent'|'info'|'debug';
+  enableMock?: boolean; // when true, test scaffolding includes mock toggle utilities
+  forceMockUpgrade?: boolean; // force regenerate mock helper even without overwrite
 }
 
 export async function generateAll(cfg: AllGenCfg = {}) {
@@ -24,7 +26,17 @@ export async function generateAll(cfg: AllGenCfg = {}) {
   await generateDtoPayloads(cfg);
   await generateJsonIndex(cfg);
   await generateApis(cfg);
-  await generateTestScaffolding(cfg);
+  await generateTestScaffolding({
+    projectRoot: cfg.projectRoot,
+    apiSpecDir: cfg.outApis,
+    baseTestDir: 'test',
+    overwrite: cfg.overwrite,
+    dryRun: cfg.dryRun,
+    logLevel: cfg.logLevel,
+    filter: cfg.filter,
+    enableMock: cfg.enableMock,
+    forceMockUpgrade: cfg.forceMockUpgrade
+  });
   const ms = Date.now() - start;
   if(cfg.logLevel !== 'silent') console.log(`[all] Completed in ${ms}ms`);
 }

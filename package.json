@@ -1,6 +1,6 @@
 {
   "name": "nest-e2e-gen",
-  "version": "0.3.9",
+  "version": "0.4.1",
   "description": "A tool to generate E2E test payloads from NestJS DTOs and Swagger decorators.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -27,11 +27,15 @@
   "author": "Shivam Mishra",
   "license": "MIT",
   "dependencies": {
+    "gh": "^2.8.9",
     "ts-morph": "^22.0.0",
     "ts-node": "^10.9.1"
   },
   "devDependencies": {
-    "typescript": "^5.4.0",
-    "@types/node": "^20.0.0"
+    "@types/node": "^20.0.0",
+    "typescript": "^5.4.0"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

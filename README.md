@@ -52,8 +52,21 @@ Common Flags:
   --clean                       Clean before generation (only meaningful with generate all)
   --overwrite                   Overwrite existing feature/step/payload files
   --dry-run                     Print actions only
+  --mock                        Include mock-mode capable test utilities (toggle at runtime via E2E_USE_MOCK=1)
+    --force-mock-upgrade          Force rewrite of request-helper with mock version even if file exists (no need for --overwrite)
   --log=info|silent|debug       Verbosity (default info)
 ```
+
+## 💡 Support / Consulting
+
+Need help integrating **nest-e2e-gen** into your project?  
+I can assist with setup, debugging, and best practices for NestJS e2e testing.
+
+**Contact:**  
+- **Name:** Shivam Mishra  
+- **Email:** shivammishr16@gmail.com  
+- **LinkedIn:** [linkedin.com/in/shivammishra16](https://www.linkedin.com/in/shivammishra16/)  
+- **Role:** Software Engineer  
 
 ### Examples
 Generate everything (fresh):
@@ -109,6 +122,64 @@ In a consumer `package.json` (e.g. `hrms-api`):
 - Payload factory names are derived from DTO class names + `DtoPayload` suffix.
 - Endpoint `extra` array is built from `:param` segments; dependency payloads for path params are auto-created if factories exist.
 
+### Mock Mode (Experimental)
+Generate scaffolding with a lightweight mock transport layer instead of spinning up a full Nest application during e2e runs.
+
+Enable at generation time:
+```
+nest-e2e-gen generate all --mock
+```
+This modifies the generated `test/utility/request-helper.ts` to detect `E2E_USE_MOCK` at runtime.
+
+Run tests using mocks only (no Nest boot, super fast):
+```
+E2E_USE_MOCK=1 pnpm test
+```
+Faster (least destructive) upgrade if you only want to inject mock helper without touching other files:
+```
+nest-e2e-gen generate tests --mock --force-mock-upgrade
+```
+This rewrites only `test/utility/request-helper.ts` (if it lacked mock markers) leaving features/steps intact.
+
+If you see a warning:
+```
+Mock support requested but existing request-helper has no mock markers. Use --overwrite or --force-mock-upgrade to regenerate.
+```
+Resolve by rerunning with one of the suggested flags.
+E2E_USE_MOCK=1 pnpm test
+```
+
+In mock mode you can register endpoint handlers inside custom step definitions or helper files:
+```ts
+import { requestHelper } from '../utility/request-helper';
+
+beforeAll(() => {
+  requestHelper.registerMock('GET', '/users', () => ({ status: 200, body: [{ id: 1, name: 'Mock User'}] }));
+});
+```
+
+Fallback behavior: if no mock registered, a generic 200 with `{ mocked: true, method, path, body }` is returned so assertions can still proceed.
+
+Switch back to real app (ignores mocks):
+```
+unset E2E_USE_MOCK # or run without the variable
+pnpm test
+```
+
+Use Cases:
+- Ultra-fast feedback while authoring steps
+- Offline development when DB not available
+- Contract-style testing before controller implementation
+
+Limitations:
+- Auth token bootstrap is skipped in mock mode (no `login`); add your own header simulation if needed.
+- Middleware/guards/pipes not executed when mocked.
+
+Roadmap Ideas for Mock Mode:
+- Pattern-based auto-mocking
+- Persisted mock recordings
+- Hybrid mode (real for some modules, mock others)
+
 ## Roadmap / Ideas
 - Optional OpenAPI schema ingestion
 - Deterministic mock value strategy plugins
@@ -117,3 +188,4 @@ In a consumer `package.json` (e.g. `hrms-api`):
 
 ## License
 MIT
+

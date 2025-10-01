@@ -53,12 +53,30 @@ git push -u origin HEAD:main
 git push origin "$TAG"
 
 echo "==> Creating GitHub release"
-CHANGELOG_SECTION=$(awk -v ver="$VERSION" 'BEGIN{p=0} /^## \[/'"$VERSION"'\]/{p=1} /^## \[/ && $0 !~ /'"$VERSION"'/{if(p){exit}} p{print}' CHANGELOG.md || true)
+# Extract changelog section for the version. We match the heading line and capture until the next heading or EOF.
+CHANGELOG_SECTION=""
+if command -v awk >/dev/null 2>&1; then
+  CHANGELOG_SECTION=$(awk -v ver="$VERSION" 'BEGIN{p=0} 
+    /^## \[/ {
+      if ($0 ~ "\\[" ver "\\]") { p=1; print; next }
+      else if (p==1) { exit }
+    }
+    p==1 { print }' CHANGELOG.md || true)
+fi
+
+if [ -z "$CHANGELOG_SECTION" ]; then
+  # sed fallback (POSIX). Print from matching header to next header (excluding next header).
+  if command -v sed >/dev/null 2>&1; then
+    CHANGELOG_SECTION=$(sed -n "/^## \\[$VERSION\\]/,/^## \\[/p" CHANGELOG.md | sed "/^## \\[/d" || true)
+  fi
+fi
+
 if [ -z "$CHANGELOG_SECTION" ]; then
   NOTES="Release v${VERSION}"
 else
   NOTES="$CHANGELOG_SECTION"
 fi
+
 if gh release view "$TAG" >/dev/null 2>&1; then
   echo "Release $TAG already exists, skipping"
 else

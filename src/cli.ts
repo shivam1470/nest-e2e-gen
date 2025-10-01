@@ -27,7 +27,7 @@ function parseArgs(argv: string[]): { command: string[]; flags: ArgMap } {
 function toBool(v: any): boolean { if (v === true) return true; if (typeof v === 'string') return ['1','true','yes','on'].includes(v.toLowerCase()); return false; }
 
 function usage() {
-  console.log(`nest-e2e-gen <group> <target> [--flags]\n\nGroups:\n  generate <dto|json-index|apis|tests|all>  Run specific generator or all in sequence\n  clean                                    Remove generated folders\n  run tests                                 Generate all then run jest\n\nCommon Flags:\n  --project-root=path            (default: cwd)\n  --src=src                      Source directory\n  --out-payloads=path            JSON dto payload directory (default: test/generated-payloads)\n  --out-apis=path                Generated api modules directory (default: test/generated-apis)\n  --out-features=path            Features directory (default: test/features)\n  --out-steps=path               Steps directory (default: test/steps)\n  --filter=users,auth            Comma list of module folders to include\n  --clean                        Clean before generation (with generate all)\n  --overwrite                    Overwrite existing generated files\n  --dry-run                      Show actions without writing\n  --log=info|silent|debug        Log verbosity\n  --jest-config=path             Custom jest config (default: jest-e2e.json or package jest)\n`);
+  console.log(`nest-e2e-gen <group> <target> [--flags]\n\nGroups:\n  generate <dto|json-index|apis|tests|all>  Run specific generator or all in sequence\n  clean                                    Remove generated folders\n  run tests                                 Generate all then run jest\n\nCommon Flags:\n  --project-root=path            (default: cwd)\n  --src=src                      Source directory\n  --out-payloads=path            JSON dto payload directory (default: test/generated-payloads)\n  --out-apis=path                Generated api modules directory (default: test/generated-apis)\n  --out-features=path            Features directory (default: test/features)\n  --out-steps=path               Steps directory (default: test/steps)\n  --filter=users,auth            Comma list of module folders to include\n  --clean                        Clean before generation (with generate all)\n  --overwrite                    Overwrite existing generated files\n  --dry-run                      Show actions without writing\n  --mock                         Generate test utilities with mock toggle scaffolding (env: E2E_USE_MOCK=1)\n  --force-mock-upgrade           Force rewrite of request-helper with mock support (even if exists)\n  --log=info|silent|debug        Log verbosity\n  --jest-config=path             Custom jest config (default: jest-e2e.json or package jest)\n`);
 }
 
 async function main() {
@@ -46,7 +46,9 @@ async function main() {
     clean: toBool(flags['clean']),
     overwrite: toBool(flags['overwrite']),
     dryRun: toBool(flags['dry-run']),
-    logLevel: ((flags['log'] as string) || 'info') as 'info'|'silent'|'debug'
+    logLevel: ((flags['log'] as string) || 'info') as 'info'|'silent'|'debug',
+    enableMock: toBool(flags['mock']),
+    forceMockUpgrade: toBool(flags['force-mock-upgrade'])
   };
 
   try {
