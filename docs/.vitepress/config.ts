@@ -4,6 +4,8 @@ export default defineConfig({
   title: 'nest-e2e-gen',
   description: 'Generate rich E2E test scaffolding & payloads directly from your NestJS code.',
   cleanUrls: true,
+  base: '/nest-e2e-gen/', // GitHub Pages base (username.github.io/nest-e2e-gen)
+  lastUpdated: true,
   themeConfig: {
     logo: { src: '/logo.svg', alt: 'nest-e2e-gen' },
     nav: [
@@ -43,6 +45,10 @@ export default defineConfig({
     socialLinks: [
       { icon: 'github', link: 'https://github.com/shivam1470/nest-e2e-gen' }
     ],
+    editLink: {
+      pattern: 'https://github.com/shivam1470/nest-e2e-gen/edit/main/docs/:path',
+      text: 'Edit this page on GitHub'
+    },
     footer: {
       message: 'Released under the MIT License.',
       copyright: `Copyright © ${new Date().getFullYear()} Shivam Mishra`

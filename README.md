@@ -189,3 +189,11 @@ Roadmap Ideas for Mock Mode:
 ## License
 MIT
 
+## Documentation Site
+
+Public docs (auto-deployed from `main`):
+
+https://shivam1470.github.io/nest-e2e-gen/
+
+If you landed here before the first deployment finishes, the link may 404 for a few minutes while GitHub Pages builds.
+
