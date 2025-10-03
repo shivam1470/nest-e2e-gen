@@ -14,7 +14,10 @@
     "build": "tsc",
     "start": "ts-node src/cli.ts",
     "prepublishOnly": "npm run build",
-    "release": "bash ./scripts/release.sh"
+    "release": "bash ./scripts/release.sh",
+    "docs:dev": "vitepress dev docs",
+    "docs:build": "vitepress build docs",
+    "docs:preview": "vitepress preview docs"
   },
   "keywords": [
     "nestjs",
@@ -33,7 +36,8 @@
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
-    "typescript": "^5.4.0"
+    "typescript": "^5.4.0",
+    "vitepress": "^1.6.4"
   },
   "publishConfig": {
     "access": "public"
